@@ -13,12 +13,13 @@ import java.nio.file.Paths;
  */
 public class Smoke {
     static int progressCalls, segmentCalls;
+    static final StringBuilder TEXT = new StringBuilder();
 
     static final WhisperCallback CB = new WhisperCallback() {
         @Override public void onProgress(int percent) { progressCalls++; }
         @Override public void onSegment(long startMs, long endMs, byte[] utf8Text) {
             segmentCalls++;
-            new String(utf8Text, java.nio.charset.StandardCharsets.UTF_8);
+            TEXT.append(new String(utf8Text, java.nio.charset.StandardCharsets.UTF_8)).append('\n');
         }
     };
 
@@ -44,6 +45,46 @@ public class Smoke {
             pos += 8 + len;
         }
         throw new IllegalStateException("no data chunk");
+    }
+
+    static void realModelChecks(NativeWhisper w, String realModel, String realVad, float[] jfk) {
+        long h = w.nInit(realModel);
+        check(h != 0, "real tiny model loads");
+
+        // English audio, English decoding: must recognise the famous sentence.
+        TEXT.setLength(0); segmentCalls = 0; progressCalls = 0;
+        int rc = w.nTranscribe(h, jfk, jfk.length, "en", 4, 1, "", CB);
+        System.out.println("      en/no-vad rc=" + rc + " segments=" + segmentCalls + " progress=" + progressCalls);
+        System.out.println("      text: " + TEXT.toString().replace('\n', ' '));
+        check(rc == 0 && segmentCalls > 0, "real model produces segments through the callback");
+        check(TEXT.toString().toLowerCase().contains("country"), "recognised text contains 'country'");
+
+        // Same with the real VAD model.
+        TEXT.setLength(0); segmentCalls = 0;
+        rc = w.nTranscribe(h, jfk, jfk.length, "en", 4, 1, realVad, CB);
+        System.out.println("      en/vad rc=" + rc + " segments=" + segmentCalls);
+        System.out.println("      text: " + TEXT.toString().replace('\n', ' '));
+        check(rc == 0 && segmentCalls > 0, "real model + real VAD produce segments");
+        check(TEXT.toString().toLowerCase().contains("country"), "text with VAD contains 'country'");
+
+        // Hebrew decoding of the English clip: output will be odd, but multi-byte UTF-8 must flow through
+        // the byte[] callback and the process must not crash. Run beam search as well.
+        for (int beam : new int[]{1, 5}) {
+            TEXT.setLength(0); segmentCalls = 0;
+            rc = w.nTranscribe(h, jfk, jfk.length, "he", 4, beam, realVad, CB);
+            System.out.println("      he/beam=" + beam + " rc=" + rc + " segments=" + segmentCalls);
+            System.out.println("      text: " + TEXT.toString().replace('\n', ' '));
+            check(rc == 0, "Hebrew decoding runs (beam=" + beam + ")");
+        }
+
+        // ~66 s of audio through VAD + several windows with the real model.
+        float[] longAudio = new float[jfk.length * 6];
+        for (int i = 0; i < 6; i++) System.arraycopy(jfk, 0, longAudio, i * jfk.length, jfk.length);
+        TEXT.setLength(0); segmentCalls = 0;
+        rc = w.nTranscribe(h, longAudio, longAudio.length, "en", 4, 1, realVad, CB);
+        System.out.println("      long rc=" + rc + " segments=" + segmentCalls);
+        check(rc == 0 && segmentCalls >= 6, "66 s of speech through VAD and several windows");
+        w.nFree(h);
     }
 
     public static void main(String[] a) throws Exception {
@@ -85,6 +126,10 @@ public class Smoke {
         check(rc != 0, "cancelled transcription returns an error status");
 
         w.nFree(h);
+
+        // Optional: a REAL model, so that text actually flows through the segment callback.
+        if (a.length >= 5) realModelChecks(w, a[3], a[4], jfk);
+
         w.nCancel(0);
         w.nFree(0);
         check(w.nTranscribe(0, jfk, jfk.length, "he", 2, 1, "", CB) < 0, "invalid handle is rejected");

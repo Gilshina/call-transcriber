@@ -107,10 +107,39 @@ jobs:
           cmake -S app/src/main/cpp -B "$RUNNER_TEMP/build" -DCMAKE_BUILD_TYPE=Release
           cmake --build "$RUNNER_TEMP/build" --target calltranscriber -j 4
 
+      - name: Download a real tiny model and the real VAD model
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/ggml-tiny.bin" \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/ggml-silero-v5.1.2.bin" \
+            https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
+          ls -la "$RUNNER_TEMP/models"
+
       - name: Run smoke test
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           javac -d "$RUNNER_TEMP/out" native-test/il/calltranscriber/whisper/*.java native-test/Smoke.java
           W="$RUNNER_TEMP/whisper.cpp"
           java -Djava.library.path="$RUNNER_TEMP/build" -cp "$RUNNER_TEMP/out" Smoke \
-            "$W/models/for-tests-ggml-tiny.bin" "$W/models/for-tests-silero-v6.2.0-ggml.bin" "$W/samples/jfk.wav"
+            "$W/models/for-tests-ggml-tiny.bin" "$W/models/for-tests-silero-v6.2.0-ggml.bin" "$W/samples/jfk.wav" \
+            "$RUNNER_TEMP/models/ggml-tiny.bin" "$RUNNER_TEMP/models/ggml-silero-v5.1.2.bin"
+
+      # Informational: do the download URLs built into the app resolve? (HEAD request, follows redirects)
+      - name: Check the app's model download URLs
+        continue-on-error: true
+        run: |
+          for u in \
+            https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ggml/resolve/main/ggml-model.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin \
+            https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin ; do
+            code=$(curl -sIL -o /dev/null -w '%{http_code} %{size_download}' "$u" || echo "curl-failed")
+            len=$(curl -sIL "$u" | grep -i '^content-length:' | tail -1 | tr -d '\r')
+            echo "URL-CHECK $code | $len | $u"
+          done
+          echo "--- files in the ivrit-ai ggml repos (API):"
+          for r in whisper-large-v3-turbo-ggml whisper-large-v3-ggml; do
+            echo "repo ivrit-ai/$r:"
+            curl -s "https://huggingface.co/api/models/ivrit-ai/$r" | python3 -c "import sys,json; d=json.load(sys.stdin); print('\n'.join('  '+x['rfilename'] for x in d.get('siblings',[])) or d)" 2>&1 | head -20
+          done
