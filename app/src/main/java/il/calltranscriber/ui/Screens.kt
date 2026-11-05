@@ -208,7 +208,7 @@ fun HomeScreen(vm: MainViewModel) {
                 )
             }
         }
-        items(vm.transcripts, key = { it.id }) { entry ->
+        items(vm.transcripts, key = { "transcript:${it.id}" }) { entry ->
             TranscriptRow(entry) { vm.open(entry.id) }
         }
     }
@@ -379,7 +379,7 @@ fun RecordingsScreen(vm: MainViewModel) {
         if (vm.recordings.isEmpty()) {
             item { Text("לא נמצאו קבצי שמע.", style = MaterialTheme.typography.bodyMedium) }
         }
-        items(vm.recordings, key = { it.ref.uri.toString() }) { row ->
+        items(vm.recordings, key = { "recording:${it.ref.uri}" }) { row ->
             Card(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -468,7 +468,8 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         val installedNames = vm.installedModels.map { it.name }.toSet()
-        items(ModelStore.PRESETS, key = { it.fileName }) { preset ->
+        // Keys must be unique across the WHOLE list; a preset and its installed file share a name, hence the prefixes.
+        items(ModelStore.PRESETS, key = { "preset:${it.fileName}" }) { preset ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(preset.title, style = MaterialTheme.typography.titleSmall)
@@ -510,7 +511,7 @@ fun SettingsScreen(vm: MainViewModel) {
 
         if (vm.installedModels.isNotEmpty()) {
             item { Text("מודלים מותקנים", style = MaterialTheme.typography.titleMedium) }
-            items(vm.installedModels, key = { it.name }) { file ->
+            items(vm.installedModels, key = { "installed:${it.name}" }) { file ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = vm.activeModelName == file.name, onClick = { vm.selectModel(file.name) })
                     Column(Modifier.weight(1f)) {

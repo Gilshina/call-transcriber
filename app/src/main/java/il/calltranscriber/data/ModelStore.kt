@@ -39,7 +39,7 @@ class ModelStore(context: Context) {
         val PRESETS = listOf(
             ModelPreset(
                 title = "ivrit.ai – large-v3-turbo (מותאם לעברית)",
-                description = "הדיוק הטוב ביותר בעברית. כ-1.6GB, איטי יותר. הכתובת לא אומתה – אם ההורדה נכשלת, ראו README.",
+                description = "הדיוק הטוב ביותר בעברית. כ-1.6GB, איטי יותר.",
                 fileName = "ivrit-ai-whisper-large-v3-turbo.bin",
                 url = "https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ggml/resolve/main/ggml-model.bin",
                 approxMb = 1620,
