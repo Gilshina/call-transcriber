@@ -291,7 +291,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setThreads(v: Int) {
+    fun updateThreads(v: Int) {
         settings.threads = v
         threads = settings.threads
     }
@@ -301,22 +301,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         beamSize = v
     }
 
-    fun setUseVad(v: Boolean) {
+    fun updateUseVad(v: Boolean) {
         settings.useVad = v
         useVad = v
     }
 
-    fun setTimestamps(v: Boolean) {
+    fun updateTimestamps(v: Boolean) {
         settings.timestamps = v
         timestamps = v
     }
 
-    fun setMatchPattern(v: String) {
+    fun updateMatchPattern(v: String) {
         settings.matchPattern = v
         matchPattern = v
     }
 
-    fun setTreeUri(uri: Uri?) {
+    fun updateTreeUri(uri: Uri?) {
         settings.treeUri = uri?.toString()
         treeUri = settings.treeUri
     }

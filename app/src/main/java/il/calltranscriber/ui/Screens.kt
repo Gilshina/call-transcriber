@@ -419,7 +419,7 @@ fun SettingsScreen(vm: MainViewModel) {
             } catch (e: SecurityException) {
                 // The grant still works for this session; scans may need the folder re-picked later.
             }
-            vm.setTreeUri(uri)
+            vm.updateTreeUri(uri)
         }
     }
 
@@ -540,7 +540,7 @@ fun SettingsScreen(vm: MainViewModel) {
                 Text("מספר תהליכונים: ${vm.threads}", style = MaterialTheme.typography.bodyMedium)
                 Slider(
                     value = vm.threads.toFloat(),
-                    onValueChange = { vm.setThreads(it.roundToInt()) },
+                    onValueChange = { vm.updateThreads(it.roundToInt()) },
                     valueRange = 2f..8f,
                     steps = 5,
                 )
@@ -548,8 +548,8 @@ fun SettingsScreen(vm: MainViewModel) {
             }
         }
         item { SwitchLine("חיפוש קרן (איטי יותר, מעט מדויק יותר)", vm.beamSize > 1) { vm.setBeam(if (it) 5 else 1) } }
-        item { SwitchLine("דלג על שקט (VAD)", vm.useVad && vm.hasVad, enabled = vm.hasVad) { vm.setUseVad(it) } }
-        item { SwitchLine("זמנים בתמלול ([0:35] לפני כל משפט)", vm.timestamps) { vm.setTimestamps(it) } }
+        item { SwitchLine("דלג על שקט (VAD)", vm.useVad && vm.hasVad, enabled = vm.hasVad) { vm.updateUseVad(it) } }
+        item { SwitchLine("זמנים בתמלול ([0:35] לפני כל משפט)", vm.timestamps) { vm.updateTimestamps(it) } }
 
         item { HorizontalDivider() }
 
@@ -558,7 +558,7 @@ fun SettingsScreen(vm: MainViewModel) {
         item {
             OutlinedTextField(
                 value = vm.matchPattern,
-                onValueChange = { vm.setMatchPattern(it) },
+                onValueChange = { vm.updateMatchPattern(it) },
                 label = { Text("ביטוי (regex) לנתיב/שם הקובץ") },
                 supportingText = { Text("ברירת מחדל: call|שיחה  (תיקיית Recordings/Call של Samsung)") },
                 singleLine = true,
@@ -573,7 +573,7 @@ fun SettingsScreen(vm: MainViewModel) {
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { pickFolder.launch(null) }) { Text("בחר תיקייה…") }
-                    if (vm.treeUri != null) TextButton(onClick = { vm.setTreeUri(null) }) { Text("נקה בחירה") }
+                    if (vm.treeUri != null) TextButton(onClick = { vm.updateTreeUri(null) }) { Text("נקה בחירה") }
                 }
                 if (vm.treeUri != null) Text("תיקייה נבחרה ✓", style = MaterialTheme.typography.bodySmall)
             }
