@@ -1,0 +1,86 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to publish the rolling "latest" release
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Android SDK components
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Make wrapper executable   # the exec bit is lost when files are uploaded through the web UI
+        run: chmod +x gradlew
+
+      # The signing key lives only in this repo's private Actions cache. It is created
+      # on the first run; later runs reuse it so that APK updates install over each other.
+      - name: Restore signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/ci-signing
+          key: signing-key-v1
+
+      - name: Create signing key (first run only)
+        run: |
+          if [ ! -f "$HOME/ci-signing/release.jks" ]; then
+            mkdir -p "$HOME/ci-signing"
+            PASS="$(openssl rand -hex 16)"
+            keytool -genkeypair -keystore "$HOME/ci-signing/release.jks" -alias calltranscriber \
+              -keyalg RSA -keysize 2048 -validity 36500 \
+              -storepass "$PASS" -keypass "$PASS" -dname "CN=CallTranscriber personal build"
+            printf '%s' "$PASS" > "$HOME/ci-signing/pass.txt"
+          fi
+          PASS="$(cat "$HOME/ci-signing/pass.txt")"
+          echo "::add-mask::$PASS"
+          echo "CT_KEYSTORE_FILE=$HOME/ci-signing/release.jks" >> "$GITHUB_ENV"
+          echo "CT_KEYSTORE_PASSWORD=$PASS" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CallTranscriber-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      # A release asset can be downloaded straight from the phone's browser (an
+      # Actions artifact is a zip and needs a GitHub login).
+      - name: Publish rolling "latest" release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk CallTranscriber.apk
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest CallTranscriber.apk \
+            --title "Latest build" \
+            --notes "Build from commit ${GITHUB_SHA::7}" \
+            --prerelease
