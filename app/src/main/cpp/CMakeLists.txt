@@ -7,6 +7,9 @@ set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 project(calltranscriber LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# whisper/ggml are static libraries linked into our shared library, so they must be PIC.
+# (Android's toolchain already does this; plain Linux, used for the CI smoke test, does not.)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ---- whisper.cpp -----------------------------------------------------------
 # Pinned release, fetched at configure time. Set WHISPER_CPP_DIR (env var) to
