@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import il.calltranscriber.core.SourceKey
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -31,23 +32,37 @@ class TranscriptStore(context: Context) {
     private val dir = File(appContext.filesDir, "transcripts").apply { mkdirs() }
     private val indexFile = File(dir, "index.json")
 
+    /** Newest first. If duplicates of one recording exist (old versions made some), only the latest is shown. */
     @Synchronized
-    fun list(): List<TranscriptEntry> {
+    fun list(): List<TranscriptEntry> =
+        readIndex()
+            .sortedByDescending { it.createdMillis }
+            .distinctBy { if (it.sourceKey.isEmpty()) it.id else SourceKey.normalize(it.sourceKey) }
+            .sortedByDescending { it.callTimeMillis }
+
+    /** True if a transcript already exists for this recording. */
+    @Synchronized
+    fun hasSource(key: String): Boolean = readIndex().any { SourceKey.same(it.sourceKey, key) }
+
+    private fun readIndex(): List<TranscriptEntry> {
         if (!indexFile.isFile) return emptyList()
         return try {
             val arr = JSONArray(indexFile.readText(Charsets.UTF_8))
             (0 until arr.length()).map { fromJson(arr.getJSONObject(it)) }
-                .sortedByDescending { it.callTimeMillis }
         } catch (e: Exception) {
             Log.w(TAG, "index unreadable", e)
             emptyList()
         }
     }
 
+    /** Adds a transcript, replacing any earlier transcript of the same recording. */
     @Synchronized
     fun add(entry: TranscriptEntry, text: String) {
         File(dir, entry.id + ".txt").writeText(text, Charsets.UTF_8)
-        writeIndex(list().filter { it.id != entry.id } + entry)
+        val all = readIndex()
+        val replaced = all.filter { it.id != entry.id && SourceKey.same(it.sourceKey, entry.sourceKey) }
+        replaced.forEach { File(dir, it.id + ".txt").delete() }
+        writeIndex(all.filter { old -> old.id != entry.id && replaced.none { it.id == old.id } } + entry)
     }
 
     @Synchronized
@@ -56,10 +71,15 @@ class TranscriptStore(context: Context) {
         return if (f.isFile) f.readText(Charsets.UTF_8) else null
     }
 
+    /** Deletes the transcript and any older duplicates of the same recording. */
     @Synchronized
     fun delete(id: String) {
+        val all = readIndex()
+        val target = all.firstOrNull { it.id == id }
+        val gone = all.filter { it.id == id || (target != null && SourceKey.same(it.sourceKey, target.sourceKey)) }
+        gone.forEach { File(dir, it.id + ".txt").delete() }
         File(dir, "$id.txt").delete()
-        writeIndex(list().filter { it.id != id })
+        writeIndex(all.filter { old -> gone.none { it.id == old.id } })
     }
 
     /** Copies the text into Documents/CallTranscripts. Returns the new file's Uri, or null on failure. */

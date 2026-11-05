@@ -12,6 +12,10 @@ import il.calltranscriber.data.AppSettings
  * we go and look for it.
  */
 class CallStateReceiver : BroadcastReceiver() {
+    private companion object {
+        const val DEBOUNCE_MS = 20_000L
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
@@ -22,7 +26,11 @@ class CallStateReceiver : BroadcastReceiver() {
                 // IDLE after RINGING only (missed call) has no recording, so require a prior OFFHOOK.
                 if (settings.lastOffHookMillis == 0L) return
                 settings.lastOffHookMillis = 0L
-                if (settings.autoEnabled) Scheduler.scanNow(context, fromCall = true)
+                if (!settings.autoEnabled) return
+                val now = System.currentTimeMillis()
+                if (now - settings.lastScanQueuedMillis < DEBOUNCE_MS) return
+                settings.lastScanQueuedMillis = now
+                Scheduler.scanNow(context, fromCall = true)
             }
         }
     }

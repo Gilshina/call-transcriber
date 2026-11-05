@@ -2,6 +2,7 @@ package il.calltranscriber.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -583,6 +584,14 @@ fun SettingsScreen(vm: MainViewModel) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("מידע טכני", style = MaterialTheme.typography.titleMedium)
+                val version = remember {
+                    try {
+                        ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.PackageInfoFlags.of(0)).versionName
+                    } catch (e: Exception) {
+                        null
+                    } ?: "?"
+                }
+                Text("גרסה: $version", style = MaterialTheme.typography.bodySmall)
                 Text(
                     "מעבד: ${WhisperEngine.systemInfo()}",
                     style = MaterialTheme.typography.bodySmall,

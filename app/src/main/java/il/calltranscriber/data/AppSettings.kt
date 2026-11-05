@@ -2,6 +2,7 @@ package il.calltranscriber.data
 
 import android.content.Context
 import il.calltranscriber.core.RecordingMatcher
+import il.calltranscriber.core.SourceKey
 
 /** All user-facing preferences plus the "already transcribed" bookkeeping. */
 class AppSettings(context: Context) {
@@ -52,30 +53,42 @@ class AppSettings(context: Context) {
         get() = sp.getLong("last_offhook", 0L)
         set(v) = sp.edit().putLong("last_offhook", v).apply()
 
+    /** When a "call ended" event last queued a scan; used to ignore duplicate broadcasts. */
+    var lastScanQueuedMillis: Long
+        get() = sp.getLong("last_scan_queued", 0L)
+        set(v) = sp.edit().putLong("last_scan_queued", v).apply()
+
     // ---- bookkeeping ---------------------------------------------------
 
     @Synchronized
-    fun isProcessed(key: String): Boolean = sp.getStringSet("processed", emptySet())?.contains(key) == true
+    fun isProcessed(key: String): Boolean {
+        val set = sp.getStringSet("processed", emptySet()) ?: return false
+        val k = SourceKey.normalize(key)
+        return set.any { SourceKey.normalize(it) == k }
+    }
 
     @Synchronized
     fun markProcessed(key: String) {
+        val k = SourceKey.normalize(key)
         val set = HashSet(sp.getStringSet("processed", emptySet()) ?: emptySet())
-        set.add(key)
-        sp.edit().putStringSet("processed", set).remove("attempts_$key").apply()
+        set.add(k)
+        sp.edit().putStringSet("processed", set).remove("attempts_$k").apply()
     }
 
     @Synchronized
     fun unmarkProcessed(key: String) {
+        val k = SourceKey.normalize(key)
         val set = HashSet(sp.getStringSet("processed", emptySet()) ?: emptySet())
-        set.remove(key)
-        sp.edit().putStringSet("processed", set).remove("attempts_$key").apply()
+        set.removeAll { SourceKey.normalize(it) == k }
+        sp.edit().putStringSet("processed", set).remove("attempts_$k").apply()
     }
 
     /** Counts how often we started on a recording, to stop retry loops if the system keeps killing the job. */
     @Synchronized
     fun incrementAttempts(key: String): Int {
-        val n = sp.getInt("attempts_$key", 0) + 1
-        sp.edit().putInt("attempts_$key", n).apply()
+        val k = SourceKey.normalize(key)
+        val n = sp.getInt("attempts_$k", 0) + 1
+        sp.edit().putInt("attempts_$k", n).apply()
         return n
     }
 }

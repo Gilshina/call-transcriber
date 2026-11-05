@@ -8,8 +8,10 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.util.Log
 import il.calltranscriber.core.RecordingMatcher
+import il.calltranscriber.core.SourceKey
 import kotlinx.coroutines.delay
 
+/** [key] is the file name, so the same file seen through MediaStore or the folder picker is one recording. */
 data class RecordingRef(
     val uri: Uri,
     val displayName: String,
@@ -17,16 +19,13 @@ data class RecordingRef(
     val dateMillis: Long,
     val sizeBytes: Long,
 ) {
-    /** Same file seen through MediaStore or the folder picker gets the same key. */
-    val key: String get() = RecordingSource.keyFor(displayName, sizeBytes)
+    val key: String get() = SourceKey.of(displayName)
 }
 
 /** Finds audio files on the phone: via MediaStore, and optionally via a folder the user picked. */
 object RecordingSource {
     private const val TAG = "RecordingSource"
     private val AUDIO_EXTENSIONS = setOf("m4a", "mp3", "amr", "3ga", "aac", "wav", "ogg", "opus", "mp4", "3gp", "flac")
-
-    fun keyFor(displayName: String, sizeBytes: Long) = "$displayName|$sizeBytes"
 
     fun queryMediaStore(context: Context, limit: Int = 300): List<RecordingRef> {
         val out = ArrayList<RecordingRef>()

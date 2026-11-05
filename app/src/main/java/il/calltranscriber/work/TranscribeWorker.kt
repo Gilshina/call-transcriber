@@ -156,7 +156,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
             }
             settledKey = ref.key
             if (!single) {
-                if (settings.isProcessed(ref.key)) return
+                if (settings.isProcessed(ref.key) || TranscriptStore(ctx).hasSource(ref.key)) return
                 if (settings.incrementAttempts(ref.key) > MAX_ATTEMPTS) {
                     settings.markProcessed(ref.key)
                     Notifications.error(ctx, "התמלול של \"$title\" נעצר שוב ושוב, לכן דילגתי עליו. אפשר לנסות ידנית מתוך האפליקציה.")

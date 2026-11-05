@@ -239,3 +239,19 @@ class TranscriptFormatterTest {
         assertEquals(3, TranscriptFormatter.wordCount(listOf(Segment(0, 1, "אחת שתיים"), Segment(1, 2, "שלוש"))))
     }
 }
+
+class SourceKeyTest {
+    @Test
+    fun legacyKeysWithSizeMapToTheFileName() {
+        assertEquals("Call recording X_240115_143022.m4a", SourceKey.normalize("Call recording X_240115_143022.m4a|123456"))
+        assertEquals("a.m4a", SourceKey.normalize("a.m4a"))
+    }
+
+    @Test
+    fun sameIgnoresSizeSuffixButNotName() {
+        assertTrue(SourceKey.same("a.m4a|100", "a.m4a|999"))
+        assertTrue(SourceKey.same("a.m4a", "a.m4a|5"))
+        assertFalse(SourceKey.same("a.m4a", "b.m4a"))
+        assertFalse(SourceKey.same("", ""))
+    }
+}
