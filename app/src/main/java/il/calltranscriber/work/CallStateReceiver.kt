@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
+import il.calltranscriber.data.AppLog
 import il.calltranscriber.data.AppSettings
 
 /**
@@ -20,6 +21,7 @@ class CallStateReceiver : BroadcastReceiver() {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
         val settings = AppSettings(context)
+        AppLog.i("CallState", "phone state: $state (auto=${settings.autoEnabled})")
         when (state) {
             TelephonyManager.EXTRA_STATE_OFFHOOK -> settings.lastOffHookMillis = System.currentTimeMillis()
             TelephonyManager.EXTRA_STATE_IDLE -> {
@@ -28,8 +30,12 @@ class CallStateReceiver : BroadcastReceiver() {
                 settings.lastOffHookMillis = 0L
                 if (!settings.autoEnabled) return
                 val now = System.currentTimeMillis()
-                if (now - settings.lastScanQueuedMillis < DEBOUNCE_MS) return
+                if (now - settings.lastScanQueuedMillis < DEBOUNCE_MS) {
+                    AppLog.i("CallState", "duplicate call-ended event ignored")
+                    return
+                }
                 settings.lastScanQueuedMillis = now
+                AppLog.i("CallState", "call ended, queueing scan")
                 Scheduler.scanNow(context, fromCall = true)
             }
         }

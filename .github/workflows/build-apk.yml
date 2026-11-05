@@ -84,3 +84,33 @@ jobs:
             --title "Latest build" \
             --notes "Build from commit ${GITHUB_SHA::7}" \
             --prerelease
+
+  # Runs the JNI bridge against whisper.cpp on the CI machine (no phone needed) with its tiny random
+  # test model, to catch crashes in the native code path.
+  native-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Fetch whisper.cpp
+        run: git clone --depth 1 --branch v1.9.5 https://github.com/ggml-org/whisper.cpp "$RUNNER_TEMP/whisper.cpp"
+
+      - name: Build the JNI library for this machine
+        run: |
+          export WHISPER_CPP_DIR="$RUNNER_TEMP/whisper.cpp"
+          cmake -S app/src/main/cpp -B "$RUNNER_TEMP/build" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/build" --target calltranscriber -j 4
+
+      - name: Run smoke test
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          javac -d "$RUNNER_TEMP/out" native-test/il/calltranscriber/whisper/*.java native-test/Smoke.java
+          W="$RUNNER_TEMP/whisper.cpp"
+          java -Djava.library.path="$RUNNER_TEMP/build" -cp "$RUNNER_TEMP/out" Smoke \
+            "$W/models/for-tests-ggml-tiny.bin" "$W/models/for-tests-silero-v6.2.0-ggml.bin" "$W/samples/jfk.wav"

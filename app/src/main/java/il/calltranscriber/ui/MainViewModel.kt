@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import il.calltranscriber.core.RecordingMatcher
+import il.calltranscriber.data.AppLog
 import il.calltranscriber.data.AppSettings
 import il.calltranscriber.data.AppState
 import il.calltranscriber.data.ModelStore
@@ -21,6 +23,7 @@ import il.calltranscriber.data.RecordingRef
 import il.calltranscriber.data.RecordingSource
 import il.calltranscriber.data.TranscriptEntry
 import il.calltranscriber.data.TranscriptStore
+import il.calltranscriber.whisper.WhisperEngine
 import il.calltranscriber.work.Scheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.launchIn
@@ -85,6 +88,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var message by mutableStateOf<String?>(null)
     var importProgress by mutableStateOf<String?>(null)
+        private set
+    var selfTestRunning by mutableStateOf(false)
         private set
 
     init {
@@ -319,6 +324,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun updateTreeUri(uri: Uri?) {
         settings.treeUri = uri?.toString()
         treeUri = settings.treeUri
+    }
+
+    /**
+     * Loads the active model and transcribes 5 s of noise, to check that the speech engine itself
+     * runs on this phone without needing a real call. Progress is written to the diagnostic log, so
+     * even a native crash leaves a trail.
+     */
+    fun runEngineSelfTest() {
+        if (selfTestRunning) return
+        selfTestRunning = true
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val model = models.resolveActive(settings)
+                if (model == null) {
+                    message = "אין מודל מותקן לבדיקה."
+                    return@launch
+                }
+                AppLog.i("SelfTest", "loading ${model.name} (${model.length() / 1_000_000} MB)")
+                val t0 = SystemClock.elapsedRealtime()
+                WhisperEngine.load(model.path).use { engine ->
+                    AppLog.i("SelfTest", "model loaded in ${SystemClock.elapsedRealtime() - t0} ms")
+                    val rnd = java.util.Random(1)
+                    val samples = FloatArray(16_000 * 5) { (rnd.nextGaussian() * 0.05).toFloat() }
+                    val vad = if (settings.useVad && models.hasVad()) models.vadFile().path else null
+                    var segments = 0
+                    val t1 = SystemClock.elapsedRealtime()
+                    AppLog.i("SelfTest", "transcribing 5 s of noise (threads=${settings.threads}, beam=${settings.beamSize}, vad=${vad != null})")
+                    val ok = engine.transcribeChunk(
+                        samples, "he", settings.threads, settings.beamSize, vad,
+                        { _, _, _ -> segments++ }, { },
+                    )
+                    val ms = SystemClock.elapsedRealtime() - t1
+                    AppLog.i("SelfTest", "whisper finished: ok=$ok, segments=$segments, ${ms} ms")
+                    message = if (ok) "בדיקת המנוע עברה ($ms מילי-שניות ל-5 שניות אודיו)." else "בדיקת המנוע נכשלה – ראו יומן אבחון."
+                }
+            } catch (t: Throwable) {
+                AppLog.e("SelfTest", "self-test failed", t)
+                message = "בדיקת המנוע נכשלה: ${t.message ?: t.javaClass.simpleName}"
+            } finally {
+                selfTestRunning = false
+            }
+        }
     }
 
     private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)

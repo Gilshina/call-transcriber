@@ -53,6 +53,11 @@ class AppSettings(context: Context) {
         get() = sp.getLong("last_offhook", 0L)
         set(v) = sp.edit().putLong("last_offhook", v).apply()
 
+    /** Newest process-exit record already copied into the log. */
+    var lastExitTimestamp: Long
+        get() = sp.getLong("last_exit_ts", 0L)
+        set(v) = sp.edit().putLong("last_exit_ts", v).apply()
+
     /** When a "call ended" event last queued a scan; used to ignore duplicate broadcasts. */
     var lastScanQueuedMillis: Long
         get() = sp.getLong("last_scan_queued", 0L)

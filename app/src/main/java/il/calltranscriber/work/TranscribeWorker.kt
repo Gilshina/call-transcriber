@@ -13,6 +13,7 @@ import il.calltranscriber.core.RecordingNameParser
 import il.calltranscriber.core.Segment
 import il.calltranscriber.core.TranscriptFormatter
 import il.calltranscriber.core.TranscriptMeta
+import il.calltranscriber.data.AppLog
 import il.calltranscriber.data.AppSettings
 import il.calltranscriber.data.AppState
 import il.calltranscriber.data.ModelStore
@@ -58,7 +59,18 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
         ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
     )
 
-    override suspend fun doWork(): Result = lock.withLock { runLocked() }
+    override suspend fun doWork(): Result = lock.withLock {
+        try {
+            runLocked()
+        } catch (e: CancellationException) {
+            AppLog.w(TAG, "work stopped/cancelled")
+            throw e
+        } catch (t: Throwable) {
+            // CoroutineWorker would swallow this silently; keep a record.
+            AppLog.e(TAG, "worker failed", t)
+            Result.failure()
+        }
+    }
 
     private suspend fun runLocked(): Result {
         val ctx = applicationContext
@@ -67,6 +79,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
         val fromCall = inputData.getBoolean(Scheduler.KEY_FROM_CALL, false)
         val attempt = inputData.getInt(Scheduler.KEY_ATTEMPT, 0)
         val single = mode == Scheduler.MODE_SINGLE
+        AppLog.i(TAG, "work start: mode=$mode fromCall=$fromCall attempt=$attempt")
 
         val items: List<RecordingRef>
         if (single) {
@@ -76,6 +89,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
             // Give the Phone app a moment to finish writing and MediaStore to index the file.
             if (fromCall) delay(if (attempt == 0) SETTLE_FIRST_MS else SETTLE_RETRY_MS)
             items = RecordingSource.findNewCalls(ctx, settings)
+            AppLog.i(TAG, "scan found ${items.size} new recording(s): ${items.joinToString { it.displayName }}")
             if (items.isEmpty()) {
                 if (fromCall && attempt < MAX_CALL_RETRIES) Scheduler.scanNow(ctx, fromCall = true, attempt = attempt + 1)
                 return Result.success()
@@ -98,14 +112,18 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
         }
         publish("תמלול שיחות", "טוען מודל תמלול…", -1)
 
+        AppLog.i(TAG, "loading model ${modelFile.name} (${modelFile.length() / 1_000_000} MB)")
         val engine = try {
             withContext(Dispatchers.Default) { WhisperEngine.load(modelFile.path) }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            AppLog.e(TAG, "model load failed", e)
             Notifications.error(ctx, "טעינת המודל נכשלה (${modelFile.name}). נסו להוריד אותו מחדש.")
             AppState.job.value = null
             return Result.success()
         }
 
+        AppLog.i(TAG, "model loaded")
         val finished = AtomicBoolean(false)
         try {
             coroutineScope {
@@ -155,6 +173,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 return
             }
             settledKey = ref.key
+            AppLog.i(TAG, "processing ${ref.displayName} (${ref.sizeBytes / 1000} KB, single=$single)")
             if (!single) {
                 if (settings.isProcessed(ref.key) || TranscriptStore(ctx).hasSource(ref.key)) return
                 if (settings.incrementAttempts(ref.key) > MAX_ATTEMPTS) {
@@ -167,6 +186,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
             publish(title, "מפענח אודיו…", -1)
             val pcm = decode(ref.uri)
             val durationMs = pcm.size * 1000L / AudioDecoder.TARGET_RATE
+            AppLog.i(TAG, "decoded ${durationMs / 1000.0} s of audio")
             if (durationMs < MIN_AUDIO_MS) {
                 settings.markProcessed(ref.key)
                 return
@@ -184,6 +204,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 val to = bounds[i + 1]
                 val samples = FloatArray(to - from) { pcm[from + it] / 32768f }
                 val offsetMs = from * 1000L / AudioDecoder.TARGET_RATE
+                AppLog.i(TAG, "whisper chunk ${i + 1}/$chunkCount: ${samples.size / AudioDecoder.TARGET_RATE} s, threads=${settings.threads}, beam=${settings.beamSize}, vad=${vadPath != null}")
                 val ok = withContext(Dispatchers.Default) {
                     engine.transcribeChunk(
                         samples = samples,
@@ -195,6 +216,7 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
                         progressSink = { p -> publish(title, "מתמלל…", (i * 100 + p) / chunkCount) },
                     )
                 }
+                AppLog.i(TAG, "whisper chunk ${i + 1}/$chunkCount finished, ok=$ok, segments so far=${raw.size}")
                 if (!ok) {
                     currentCoroutineContext().ensureActive()
                     throw IllegalStateException("מנוע התמלול נכשל")
@@ -229,14 +251,15 @@ class TranscribeWorker(context: Context, params: WorkerParameters) : CoroutineWo
             )
             val store = TranscriptStore(ctx)
             store.add(entry, text)
-            store.publishToDocuments(fileName, text)
+            val published = store.publishToDocuments(fileName, text)
             settings.markProcessed(ref.key)
+            AppLog.i(TAG, "transcript saved: ${entry.wordCount} words, public copy=${published != null}")
             AppState.bumpData()
             Notifications.result(ctx, entry, title)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "transcription failed for ${first.displayName}", e)
+            AppLog.e(TAG, "transcription failed for ${first.displayName}", e)
             if (!single) settings.markProcessed(settledKey ?: first.key)
             Notifications.error(ctx, "התמלול של \"$title\" נכשל: ${e.message ?: e.javaClass.simpleName}")
         } finally {

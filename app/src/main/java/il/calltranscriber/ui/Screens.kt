@@ -52,9 +52,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import il.calltranscriber.core.TranscriptFormatter
+import il.calltranscriber.data.AppLog
 import il.calltranscriber.data.AppState
 import il.calltranscriber.data.ModelStore
 import il.calltranscriber.data.TranscriptEntry
@@ -407,6 +410,7 @@ fun RecordingsScreen(vm: MainViewModel) {
 @Composable
 fun SettingsScreen(vm: MainViewModel) {
     val ctx = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val download by AppState.download.collectAsState()
     var customUrl by remember { mutableStateOf("") }
 
@@ -596,6 +600,38 @@ fun SettingsScreen(vm: MainViewModel) {
                     "מעבד: ${WhisperEngine.systemInfo()}",
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+        }
+
+        item { HorizontalDivider() }
+        item {
+            var logText by remember { mutableStateOf(AppLog.read(6_000)) }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("יומן אבחון", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "אם משהו לא עובד (למשל האפליקציה קורסת), לחצו \"העתק\" והדביקו לי את היומן.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        clipboard.setText(AnnotatedString(AppLog.read(30_000)))
+                        vm.message = "היומן הועתק"
+                    }) { Text("העתק") }
+                    OutlinedButton(onClick = { logText = AppLog.read(6_000) }) { Text("רענן") }
+                    OutlinedButton(onClick = {
+                        AppLog.clear()
+                        logText = ""
+                    }) { Text("נקה") }
+                }
+                OutlinedButton(onClick = { vm.runEngineSelfTest() }, enabled = !vm.selfTestRunning) {
+                    Text(if (vm.selfTestRunning) "בודק…" else "בדיקת מנוע (בלי שיחה)")
+                }
+                SelectionContainer {
+                    Text(
+                        logText.ifBlank { "(היומן ריק)" },
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 10.sp),
+                    )
+                }
             }
         }
     }
